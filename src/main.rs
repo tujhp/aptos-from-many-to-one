@@ -1,37 +1,20 @@
-extern crate core;
-
-use core::panicking::panic;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use aptos_sdk;
-use aptos_sdk::bcs;
-use aptos_sdk::coin_client::CoinClient;
+use aptos_sdk::coin_client::{CoinClient, TransferOptions};
 use aptos_sdk::crypto::ed25519::Ed25519PrivateKey;
-use aptos_sdk::crypto::{ValidCryptoMaterialStringExt};
-use aptos_sdk::move_types::identifier::Identifier;
-use aptos_sdk::move_types::language_storage::ModuleId;
-use aptos_sdk::rest_client::{Client, PendingTransaction};
-use aptos_sdk::transaction_builder::TransactionBuilder;
+use aptos_sdk::crypto::ValidCryptoMaterialStringExt;
+use aptos_sdk::rest_client::Client;
 use aptos_sdk::types::account_address::AccountAddress;
-use aptos_sdk::types::chain_id::ChainId;
-use aptos_sdk::types::transaction::{EntryFunction, TransactionPayload};
 use aptos_sdk::types::{AccountKey, LocalAccount};
-use once_cell::sync::Lazy;
+use dotenv::dotenv;
 use reqwest;
-use serde::de::Unexpected::Str;
 use serde::Deserialize;
 use std::fs::File;
 use std::io;
-use std::io::Read;
-use std::io::{stdin, stdout, Write};
+use std::io::{Read, Write};
 use std::str::FromStr;
-use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use aptos_sdk::rest_client::aptos_api_types::{Address};
 use tokio;
-use tokio::sync::mpsc;
 use url::Url;
-use dotenv::dotenv;
-
 
 #[derive(Deserialize)]
 struct AccountData {
@@ -119,24 +102,36 @@ async fn main() -> Result<()> {
 
     println!("Wallets {:?}, len: {:?}", wallets, wallets.len());
     for mut wallet in wallets {
-            let rest_client = Client::new(node_url.clone());
-            let coin_client = CoinClient::new(&rest_client);
-            let balance = coin_client
-                .get_account_balance(&wallet.address())
-                .await
-                .unwrap();
-            if balance < transaction_fee {
-                println!("INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE. Account: {:?}", wallet.address());
-            } else {
-                let value = balance - transaction_fee;
-                let txn_hash = coin_client.transfer(
+        let rest_client = Client::new(node_url.clone());
+        let coin_client = CoinClient::new(&rest_client);
+        let balance = coin_client
+            .get_account_balance(&wallet.address())
+            .await
+            .unwrap();
+        println!("Balance: {:?}", balance);
+        if balance < transaction_fee {
+            println!(
+                "INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE. Account: {:?}",
+                wallet.address()
+            );
+        } else {
+            let value = balance - transaction_fee;
+            let txn_hash = coin_client
+                .transfer(
                     &mut wallet,
                     AccountAddress::from_str(&to_address[..]).unwrap(),
                     value,
-                    None,
-                ).await.unwrap();
-                println!("{:?}", txn_hash.hash);
-            }
+                    Option::Some(TransferOptions {
+                        max_gas_amount: 541,
+                        gas_unit_price: 100,
+                        timeout_secs: 10,
+                        coin_type: "0x1::aptos_coin::AptosCoin",
+                    }),
+                )
+                .await
+                .unwrap();
+            println!("{:?}", txn_hash.hash);
+        }
     }
 
     Ok(())
